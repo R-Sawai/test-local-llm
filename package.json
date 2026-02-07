@@ -1,0 +1,8 @@
+{
+  "name": "test-local-llm",
+  "version": "1.0.0",
+  "description": "",
+  "workspaces": [
+    "apps/*"
+  ]
+}

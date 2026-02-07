@@ -13,13 +13,7 @@ const ollama = new Ollama({ host: OLLAMA_HOST });
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-// ---- HTMLテンプレート読み込み ----
-const indexHtml = readFileSync(
-  resolve(__dirname, "views", "index.html"),
-  "utf-8",
-);
-
-// ---- App ----
+/** Honoアプリケーション */
 export const app = new Hono();
 
 // 静的ファイル配信 (CSS / JS)
@@ -41,7 +35,9 @@ app.get("/static/:file", (c) => {
 });
 
 // チャットUI
-app.get("/", (c) => c.html(indexHtml));
+app.get("/", (c) =>
+  c.html(readFileSync(resolve(__dirname, "views", "index.html"), "utf-8")),
+);
 
 // チャットAPI（ストリーミング）
 app.post("/api/chat", async (c) => {

@@ -467,6 +467,87 @@ const existingStore = new Chroma(embeddings, {
 });
 ```
 
+### pgvector を使う（PostgreSQL 拡張）
+
+PostgreSQL に慣れている場合はこちらが自然。既存の DB 運用・バックアップ・認証がそのまま使える。
+
+```bash
+npm install pg @types/pg
+```
+
+```yaml
+# docker-compose.yml に追記
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: rag
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:
+```
+
+```typescript
+import pg from "pg";
+
+const { Pool } = pg;
+const pool = new Pool({
+  host: "localhost",
+  port: 5432,
+  user: "admin",
+  password: "password",
+  database: "rag",
+});
+
+// pgvector 拡張を有効化 & テーブル作成
+await pool.query("CREATE EXTENSION IF NOT EXISTS vector");
+await pool.query(`
+  CREATE TABLE IF NOT EXISTS document_chunks (
+    id        SERIAL PRIMARY KEY,
+    content   TEXT NOT NULL,
+    source    TEXT NOT NULL,
+    category  TEXT,
+    embedding vector(768),
+    created_at TIMESTAMPTZ DEFAULT NOW()
+  )
+`);
+// HNSW インデックスでコサイン距離検索を高速化
+await pool.query(`
+  CREATE INDEX IF NOT EXISTS idx_chunks_embedding
+  ON document_chunks USING hnsw (embedding vector_cosine_ops)
+`);
+
+// ドキュメントを保存
+const embeddingStr = `[${embedding.join(",")}]`;
+await pool.query(
+  "INSERT INTO document_chunks (content, source, embedding) VALUES ($1, $2, $3)",
+  [text, sourceName, embeddingStr],
+);
+
+// コサイン距離で類似検索（<=> 演算子）
+const { rows } = await pool.query(
+  `SELECT id, content, source, embedding <=> $1 AS distance
+   FROM document_chunks ORDER BY embedding <=> $1 LIMIT $2`,
+  [embeddingStr, 3],
+);
+```
+
+| 比較項目     | Chroma            | pgvector                          |
+| ------------ | ----------------- | --------------------------------- |
+| セットアップ | 専用コンテナ 1 つ | PostgreSQL + 拡張                 |
+| 永続化       | 自動              | PostgreSQL のまま                 |
+| 運用         | 独自の管理が必要  | 既存の PG 運用に乗る              |
+| SQL          | 使えない          | フィルタ・JOIN が自由             |
+| メタデータ   | JSON で柔軟       | カラムで型安全                    |
+| スケール     | 中規模まで        | PG のスケーリングがそのまま使える |
+
 ---
 
 ## RAG を API エンドポイントとして公開する
@@ -605,20 +686,25 @@ const optimizedQuery = await rewriteChain.invoke({
 
 ```
 apps/backend/src/
-├── index.ts              # サーバーエントリーポイント
+├── index.ts              # サーバーエントリーポイント（DB 初期化 → サーバー起動）
 ├── app.ts                # Hono ルーティング
+├── db.ts                 # PostgreSQL 接続 & pgvector 初期化
 ├── views/
 │   └── index.html
 ├── static/
 │   ├── style.css
 │   └── chat.js
-├── rag/                  # ← 追加
-│   ├── index.ts          # RAG 実行スクリプト
-│   ├── documents.ts      # ドキュメント読み込み & 分割
-│   ├── vectorstore.ts    # ベクトルストア構築
-│   └── chain.ts          # RAG チェーン（プロンプト + LLM）
-└── routes/               # ← 追加
-    └── rag.ts            # RAG API エンドポイント
+├── schemas/              # 型定義・スキーマ
+│   ├── documentChunk.ts  # チャンクの DB 型
+│   └── rag.ts            # API リクエスト / レスポンス型
+├── repositories/         # データアクセス層
+│   └── documentChunkRepository.ts  # pgvector CRUD・類似検索
+├── services/             # ビジネスロジック層
+│   ├── embeddingService.ts   # Ollama 埋め込みモデル呼び出し
+│   ├── documentService.ts    # ドキュメント取り込み（分割→ベクトル化→DB保存）
+│   └── ragService.ts         # RAG 質問応答（検索→プロンプト→LLM）
+└── routes/               # API エンドポイント
+    └── rag.ts            # POST /api/rag/ask, POST /api/rag/ingest
 ```
 
 ---
@@ -630,3 +716,4 @@ apps/backend/src/
 - [LangChain.js - Vector Stores](https://js.langchain.com/docs/concepts/vectorstores/)
 - [Ollama Embedding API](https://github.com/ollama/ollama/blob/main/docs/api.md#generate-embeddings)
 - [Chroma DB](https://www.trychroma.com/)
+- [pgvector](https://github.com/pgvector/pgvector)

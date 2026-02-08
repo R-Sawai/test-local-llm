@@ -8,11 +8,20 @@
   },
   "dependencies": {
     "@hono/node-server": "^1.19.9",
+    "@hono/zod-openapi": "^1.2.1",
+    "@langchain/community": "^1.1.12",
+    "@langchain/core": "^1.1.19",
+    "@langchain/ollama": "^1.2.2",
+    "drizzle-orm": "^0.45.1",
     "hono": "^4.11.8",
-    "ollama": "^0.6.3"
+    "langchain": "^1.2.18",
+    "ollama": "^0.6.3",
+    "pg": "^8.18.0",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/node": "^20.11.17",
+    "@types/pg": "^8.16.0",
     "tsx": "^4.7.1",
     "typescript": "^5.8.3"
   }

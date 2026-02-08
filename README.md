@@ -1,6 +1,13 @@
-# Test Local LLM
+# Test Local LLM & RAG
 
-このリポジトリは、ローカル環境で Ollama を使って大規模言語モデル（LLM）を動作させるためのサンプルプロジェクトです。
+このリポジトリは、ローカル環境で Ollama を使用して大規模言語モデル（LLM）を動作させ、RAG (Retrieval-Augmented Generation) を実現するためのフルスタックサンプルプロジェクトです。
+
+## 特徴
+
+- **Frontend**: React, Vite, TailwindCSS, shadcn/ui
+- **Backend**: Hono, LangChain, Postgres (pgvector)
+- **AI/LLM**: Ollama (Local LLM)
+- **Architecture**: Monorepo (npm workspaces)
 
 ---
 
@@ -12,21 +19,31 @@
 | Docker Desktop | 最新版                     |
 | npm            | v10 以上（Node.js に同梱） |
 
+## 動作確認環境
+
+| 項目       | スペック                                             |
+| ---------- | ---------------------------------------------------- |
+| OS         | Windows 11                                           |
+| CPU        | i5-14400F                                            |
+| メモリ     | 32GB                                                 |
+| ストレージ | SSD                                                  |
+| GPU        | RTX 4060Ti 16GB （CPUのみでも動作可能ですがGPU推奨） |
+
 ---
 
 ## 1. リポジトリのセットアップ
 
+プロジェクトルートで依存パッケージを一括インストールします。
+
 ```bash
-# クローン後、ルートで依存パッケージをインストール
 npm install
 ```
 
-npm workspaces を使用しているため、ルートで `npm install` を実行すると
-`apps/backend` の依存関係も一括でインストールされます。
-
 ---
 
-## 2. Ollama を Docker で起動する
+## 2. インフラの起動 (Docker)
+
+Ollama と PostgreSQL (pgvector) を起動します。
 
 ### 2-1. コンテナの起動
 
@@ -34,54 +51,60 @@ npm workspaces を使用しているため、ルートで `npm install` を実�
 docker compose up -d
 ```
 
-プロジェクトルートの `docker-compose.yml` により、以下が自動で構成されます。
+以下のサービスが起動します。
 
-- **イメージ**: `ollama/ollama:latest`
-- **ポート**: `11434` → ホストの `11434` にマッピング
-- **データ永続化**: Docker ボリューム `ollama_data` にモデルデータを保存
+- **ollama**: LLM実行エンジン (Port: `11434`)
+- **postgres**: ベクトル検索対応データベース (Port: `5432`)
 
 ### 2-2. モデルのダウンロード
+
+使用するLLMモデルをダウンロードします。
 
 ```bash
 docker exec ollama ollama pull gemma3:4b
 ```
 
-> 初回は約 3.3GB のダウンロードが発生します。
+※ 初回およびモデル変更時はダウンロードに時間がかかります。
 
-### 2-3. 動作確認
+### 2-3. インフラ動作確認
 
 ```bash
-# Ollama が起動しているか確認
 curl http://localhost:11434/api/tags
 ```
 
-レスポンスに `gemma3:4b` が含まれていれば OK です。
-
-```bash
-# PowerShell の場合
-Invoke-RestMethod -Uri "http://localhost:11434/api/tags" | ConvertTo-Json -Depth 5
-```
+レスポンスにモデル情報が含まれていれば準備完了です。
 
 ---
 
-## 3. バックエンドの起動
+## 3. アプリケーションの起動
+
+ターミナルを2つ開き、バックエンドとフロントエンドをそれぞれ起動してください。
+
+### Terminal 1: バックエンド
 
 ```bash
-# 開発サーバー（ホットリロード付き）
 npm run dev -w backend
 ```
 
-サーバーが `http://localhost:3000` で起動します。
+- サーバー: `http://localhost:3000`
+- 起動時にデータベースの初期化とサンプルデータの投入が自動的に行われます。
+
+### Terminal 2: フロントエンド
+
+```bash
+npm run dev -w frontend
+```
+
+- クライアント: `http://localhost:5173` (ポート番号は状況により変わる場合があります)
 
 ---
 
 ## 4. 使い方
 
-ブラウザで `http://localhost:3000` にアクセスすると、チャット画面が表示されます。
-
-- テキストエリアにメッセージを入力
-- **Enter** で送信（**Shift+Enter** で改行）
-- LLM からの応答がストリーミングで表示されます
+1. ブラウザでフロントエンドのURL (例: `http://localhost:5173`) にアクセスします。
+2. チャット画面が表示されます。
+3. メッセージを入力して送信すると、ローカルLLMからの応答が表示されます。
+   - RAG機能により、バックエンドに登録されたドキュメント情報を踏まえた回答が生成される場合があります。
 
 ---
 
@@ -89,73 +112,44 @@ npm run dev -w backend
 
 ```
 test-local-llm/
-├── docker-compose.yml        # Ollama コンテナ定義
-├── package.json              # ルート（npm workspaces）
+├── docker-compose.yml        # インフラ定義 (Ollama, Postgres)
+├── package.json              # ルート設定 (npm workspaces)
 └── apps/
-    └── backend/
-        ├── package.json      # バックエンド依存関係
-        ├── tsconfig.json
-        └── src/
-            ├── index.ts      # サーバーエントリーポイント
-            ├── app.ts        # Hono ルーティング & Ollama 連携
-            ├── views/
-            │   └── index.html  # チャット画面 HTML
-            └── static/
-                ├── style.css   # スタイル
-                └── chat.js     # クライアントサイド JS
+    ├── backend/              # バックエンド (Hono, LangChain)
+    │   ├── src/
+    │   │   ├── index.ts      # エントリーポイント
+    │   │   ├── services/     # ビジネスロジック (RAG, Embedding)
+    │   │   └── repositories/ # DBアクセス
+    │   └── ...
+    └── frontend/             # フロントエンド (React, Vite)
+        ├── src/
+        │   ├── components/   # UIコンポーネント (shadcn/ui他)
+        │   ├── hooks/        # カスタムフック (API連携)
+        │   └── ...
+        └── ...
 ```
 
 ---
 
 ## 環境変数
 
-`app.ts` 内で以下の環境変数を参照しています。未指定時はデフォルト値が使われます。
+各アプリケーションのデフォルト設定です。必要に応じて `.env` ファイル等で上書き設定を行ってください。
 
-| 変数名        | デフォルト値             | 説明                  |
-| ------------- | ------------------------ | --------------------- |
-| `OLLAMA_HOST` | `http://localhost:11434` | Ollama API のホスト   |
-| `MODEL_NAME`  | `gemma3:4b`              | 使用する LLM モデル名 |
-
-例：異なるモデルを使う場合
-
-```bash
-MODEL_NAME=llama3:8b npm run dev -w backend
-```
+| アプリ   | 変数名          | デフォルト値             | 説明                            |
+| -------- | --------------- | ------------------------ | ------------------------------- |
+| Backend  | `OLLAMA_HOST`   | `http://localhost:11434` | Ollama API ホスト               |
+| Backend  | `POSTGRES_DB`   | `rag`                    | データベース名                  |
+| Backend  | `POSTGRES_USER` | `admin`                  | DBユーザー                      |
+| Frontend | `VITE_API_BASE` | `/api` (Proxy)           | バックエンドAPIのエンドポイント |
 
 ---
 
 ## よく使うコマンド
 
-| 操作               | コマンド                                    |
-| ------------------ | ------------------------------------------- |
-| コンテナ起動       | `docker compose up -d`                      |
-| コンテナ停止       | `docker compose down`                       |
-| コンテナログ確認   | `docker compose logs -f ollama`             |
-| モデル一覧         | `docker exec ollama ollama list`            |
-| モデル追加         | `docker exec ollama ollama pull <モデル名>` |
-| モデル削除         | `docker exec ollama ollama rm <モデル名>`   |
-| バックエンド起動   | `npm run dev -w backend`                    |
-| バックエンドビルド | `npm run build -w backend`                  |
-
----
-
-## トラブルシューティング
-
-### ポート 3000 が既に使われている
-
-```bash
-# Windows PowerShell
-Get-NetTCPConnection -LocalPort 3000 | Select-Object OwningProcess
-Stop-Process -Id <プロセスID> -Force
-```
-
-### Ollama に接続できない
-
-1. コンテナが起動しているか確認: `docker ps --filter "name=ollama"`
-2. ポートが公開されているか確認: `curl http://localhost:11434`
-3. モデルが pull 済みか確認: `docker exec ollama ollama list`
-
-### モデルの応答が遅い
-
-- CPU のみで推論しているため、モデルサイズが大きいと遅くなります
-- より軽量なモデル（例: `gemma3:1b`）に切り替えることで改善できます
+| 操作             | コマンド                         |
+| ---------------- | -------------------------------- |
+| インフラ一式起動 | `docker compose up -d`           |
+| 停止             | `docker compose down`            |
+| Backend 起動     | `npm run dev -w backend`         |
+| Frontend 起動    | `npm run dev -w frontend`        |
+| モデル一覧       | `docker exec ollama ollama list` |
